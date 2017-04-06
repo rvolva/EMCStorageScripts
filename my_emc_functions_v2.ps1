@@ -1,4 +1,4 @@
-#== VMAX Functions =========================================
+# == VMAX Functions =========================================
 
 function set-climode-xml {
     $env:SYMCLI_OUTPUT_MODE='XML'
@@ -26,15 +26,15 @@ function get-symDevSortedBySize {
 }
 
 function set-se ([string]$site) {
-    switch ($site) {
-        "WH"   { $seHost="sv65454" }
-        "WK"   { $seHost="sv65451" }
-        "BH"   { $seHost="sv65453" }
-        default { $seHost="sv65451" }
-   
+
+    if( -not (Test-Path $se_hosts_file ) ) {
+        Write-Error "$se_hosts_file file missing"
     }
 
-    $env:SYMCLI_CONNECT=$seHost
+    $se_hosts=cat -raw $se_hosts_file | ConvertFrom-Json
+
+    $env:SYMCLI_CONNECT=$se_hosts.$site
+    "SYMCLI HOST: " + $env:SYMCLI_CONNECT
 }
 
 function get-se {
@@ -42,7 +42,7 @@ function get-se {
 }
 
 
-== VPLEX functions ===================================================
+# == VPLEX functions ===================================================
 
 function run-vplexRESTCmd {
       param(
