@@ -3,7 +3,7 @@
 ## $Date: 2012/01/17 18:12:05 $
 ## $Revision: 1.3 $
 ##
-## Vlad Pavlov
+## Rimid Volva
 ##
 
 # This script print list of EMC arrays the host is attached to
