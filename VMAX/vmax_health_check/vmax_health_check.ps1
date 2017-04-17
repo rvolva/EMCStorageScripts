@@ -21,6 +21,7 @@ Parameters:
 -login                         show initiator logins
 -loginfail                     show initiator login failues only
 -all                           all reports except for "-login" and "-hw"
+-v	                           show version						  
 
 .EXAMPLE
 
@@ -43,39 +44,19 @@ param(
     [switch]$rdf,
     [switch]$login,
     [switch]$loginfail,
-    [switch]$all
+    [switch]$all,
+    [switch]$v
 #    [switch]$unused_tdev    future plan
     
     
 )
 
+$VERSION="6.7"
+
 $VMAXLIST=@()
 $UnknownSID=@()
 $VMAXINFO=[ordered]@{}
 
-if( $SID -ne "" ) {
-    $VMAXLIST=$SID.split()
-}
-
-if( $sidlist -ne "" ) {
-    if( test-path $sidlist ) {
-        foreach( $SID in ( gc $sidlist | select-string -Pattern "^#|^$" -NotMatch )) {
-            $VMAXLIST+=$SID
-        }
-    }
-}   
-
-if( $VMAXLIST.count -eq 0 ) {
-    "Usage: health_check_VMAX.ps1 -SID <symm ID> | -sidlist <symm ID list file> [-all] [-hwfail|-hw] [-capacity] [-rdf] [-loginfail|login]"
-    exit
-}
-
-"Computer: " + (hostname)
-"Script: " + $MyInvocation.MyCommand.Definition
-""
-
-(get-date).ToString()
-""
 
 function getArrayBaseInfo {
    
@@ -243,7 +224,6 @@ function hwReport {
 
             "Failed Drives:"
             "--------------"
-            #DEBUG   [xml]$symdisk=(gc  "C:\Users\du82\Documents\Projects\2016-10-20 Health Check automation\symdisk-2638-failed.txt")
             [xml]$xmlout=(symdisk -sid $sid list -v -failed)
             if( $xmlout.SelectNodes('//Failed_Disk') ) {
                 $xmlout.SelectNodes('//Disk_Info') | ft ident,interface,tid,disk_group_name,vendor,technology,rated_gigabytes,serial -autosize | out-string -Width 150
@@ -396,6 +376,8 @@ function storageCapacityReport {
 
 function rdfReport {
 
+  
+
     $env:SYMCLI_OUTPUT_MODE='XML'
     
     "== VMAX RDF Group Pair Status ================================================="
@@ -430,7 +412,14 @@ function rdfReport {
                 if( -not $rdfgs[$rdfg] ) {
                     $rdfgs[$rdfg]=@{}
                 }
-                $rdfgs[$rdfg][$dev.RDF.RDF_Info.pair_state]++
+
+                $pair_state=$dev.RDF.RDF_Info.pair_state
+
+                if( $pair_state -eq "Split" -or $pair_state -eq "Suspended" ) {
+                    $pair_state+=" "+([datetime]::ParseExact($dev.RDF.Status.link_status_change_time,"ddd MMM dd HH:mm:ss yyyy",$null)).ToShortDateString()
+                }
+
+                $rdfgs[$rdfg][$pair_state]++
             }
         }
         
@@ -441,9 +430,11 @@ function rdfReport {
             
             foreach( $pair_state in $pair_states.keys | sort ) {
                 $num=$pair_states[$pair_state]
-                $str+="$pair_state" +":" + $pair_states[$pair_state] + " "
+                $str+="$pair_state" +" - " + $pair_states[$pair_state] + ", "
                 
             }
+
+            $str=$str -replace ", $",""
             $str
         }
         ""
@@ -478,12 +469,7 @@ function initiatorReport {
         [xml]$symaccessMaskingViewXmlOut=symaccess -sid $SID list view -detail
         [xml]$symaccessLoginsXmlOut=symaccess -sid $SID list logins
         
-<# DEBUG
-        [xml]$symaccessMaskingViewXmlOut=cat  symaccess-list-view-detail.xml
-        [xml]$symaccessLoginsXmlOut=cat  symaccess-list-logins.xml
-End of DEBUG #>
-
-                
+               
         $initiatorLogins=@{}
         
         $symaccessLoginsXmlOut.SelectNodes("//Devmask_Login_Record") | foreach {
@@ -527,8 +513,6 @@ End of DEBUG #>
                     $ports.add(($port_info.dir  -replace "FA-") + ":" + $port_info.port,$false)
                 }
 
-                # DEBUG "New init group: $initiatorGroupName"
-
                 $initiators=@()
 
                 foreach ( $initiator in $xmlMaskingView.Initiator_List.Initiator ) {
@@ -537,8 +521,6 @@ End of DEBUG #>
 
                         $initiatorInfo=[ordered]@{}
                     
-                        #DEBUG "New WWN: " + $initiator.wwn
-
                         $initiatorInfo.WWPN     = $initiator.wwn
                         $initiatorInfo.LoggedIn = $false
                         
@@ -582,13 +564,10 @@ End of DEBUG #>
 
                         if( $portsLoggedIn -ne $ports.count ) {
 
-                            #DEBUG $initiatorGroupName + " Ports " + $ports.count + " LoggedIn $portsLoggedIn"
-
                             $initiatorGroups.add($initiatorGroupName,$initiators)
 
                         } elseif ( $loggedInCount -ne $initiators.count -and $initiators.count / $loggedInCount -ne 2 ) {
 
-                            #DEBUG $initiatorGroupName + " Initiators: " + $initiators.count + " LoggedIn Count: $loggedInCount "
                             $initiatorGroups.add($initiatorGroupName,$initiators)
                         
                         } 
@@ -619,6 +598,38 @@ End of DEBUG #>
 
 $originalSymCliOutputMode=$env:SYMCLI_OUTPUT_MODE
 
+if( $v ) {
+    "vmax_health_check version $VERSION"
+    exit
+}
+
+
+if( $SID -ne "" ) {
+    $VMAXLIST=$SID.split()
+}
+
+if( $sidlist -ne "" ) {
+    if( test-path $sidlist ) {
+        foreach( $SID in ( gc $sidlist | select-string -Pattern "^#|^$" -NotMatch )) {
+            $VMAXLIST+=$SID
+        }
+    }
+}   
+
+if( $VMAXLIST.count -eq 0 ) {
+    "Usage: vmax_health_check.ps1 -SID <symm ID> | -sidlist <symm ID list file> [-all] [-hwfail|-hw] [-capacity] [-rdf] [-loginfail|login] [-v]"
+    exit
+}
+
+
+
+"Computer: " + (hostname)
+"Script: " + $MyInvocation.MyCommand.Definition
+"Version: " + $VERSION
+""
+
+(get-date).ToString()
+""
 
 getArrayBaseInfo
 
