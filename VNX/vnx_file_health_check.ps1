@@ -51,15 +51,23 @@ param(
 BEGIN {
     $SCRIPT_VERSION="1.0"
 
-    $CS_LIST=@()
-    $CS_LIST_WITH_FAILED_CONNECTION=@()
-    $CS_INFO=[ordered]@{}
+    $ControlStationList=@()
+    $ControlStationCredentials=[ordered]@{}
+    $ControlStationDetails=@{}
+
+
 
     $credentials=if( $user -ne "" -and $password -ne "" ) { "-user $user -password $password -scope 0" }
 }
 
 
 PROCESS {
+
+    foreach( $cs in $ControlStation ) {
+        $SCRIPT_VERSION
+        $cs
+    }
+
 }
 
 
