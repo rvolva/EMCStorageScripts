@@ -18,12 +18,16 @@ Parameters:
 Credential File Format:
 
 [
-    { "cs1" : { "user": "nasadmin",
-                "password": ""
-              },
-    { "cs2" : { "user": "nasadmin",
-                "password": ""
-              }
+    { 
+      "cs_name": "cs1",
+      "user": "nasadmin1",
+      "password": "xx1"
+    },
+    { 
+      "cs_name":    "cs2",
+      "user": "nasadmin2",
+      "password": "xx2"
+    }
 ]
 							   
 .EXAMPLE
@@ -38,7 +42,6 @@ vnx_file_replication_status.ps1 -credfile cs_cred_file.json -ip vnx01_cs0 -user 
 
 #>
 
-[CmdletBinding()] 
 param(
     [string[]]$ControlStation,
 	[string]$User,
@@ -48,26 +51,72 @@ param(
     [switch]$help
 )
 
-BEGIN {
-    $SCRIPT_VERSION="1.0"
+$SCRIPT_VERSION="1.0"
 
-    $ControlStationList=@()
-    $ControlStationCredentials=[ordered]@{}
-    $ControlStationDetails=@{}
+#$ControlStationList=@()
+$ControlStationCredentials=[ordered]@{}
+$ControlStationDetails=@{}
+
+#$credentials=if( $user -ne "" -and $password -ne "" ) { "-user $user -password $password -scope 0" }
 
 
 
-    $credentials=if( $user -ne "" -and $password -ne "" ) { "-user $user -password $password -scope 0" }
+function processParameters {
+    
+    if( ($script:ControlStation -eq $null -and $script:CredentialFile -eq "" ) -or $script:help ) {
+        "vnx_file_health_check.ps1 version $SCRIPT_VERSION"
+        ""
+        "Usage:"
+        ""
+         "vnx_file_health_check.ps1 -ControlStation <cs1>,[<cs2>] -User <user name> -Password <password> -CredentialFile <file> -UpdateCredentialFile -Help"
+        exit
+    }
 }
 
+function printReportHeader {
+    "Version $SCRIPT_VERSION"
+}
 
-PROCESS {
+function readCredentialFile( $credFile ) {
 
-    foreach( $cs in $ControlStation ) {
-        $SCRIPT_VERSION
-        $cs
+    if( $credFile -eq "" ) {
+        return
     }
 
+
+    try
+    {
+        $creds_array=(cat $credFile  -ErrorAction stop) -join "`n"  | convertfrom-json
+    }
+    
+    catch {
+        Write-Host "Couldn't open file $credfile"
+        exit 1
+    }
+
+
+    $cred_dictionary=[ordered]@{}
+
+    foreach( $cred in $creds_array ) {
+        $cred_dictionary.add( $cred.cs_name, @{ user=$cred.user;password=$cred.password } )
+    }
+
+    $cred_dictionary
+
 }
+
+processParameters
+
+
+$credentials=readCredentialFile $CredentialFile
+
+$credentials.cs2
+
+printReportHeader
+
+
+<#foreach( $cs in $ControlStation ) {
+        $cs
+}#>
 
 
