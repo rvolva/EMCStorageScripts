@@ -17,19 +17,20 @@ Parameters:
 
 Credential File Format:
 
-[
-    { 
-      "cs_name": "cs1",
-      "user": "nasadmin1",
-      "password": "xx1"
-    },
-    { 
-      "cs_name":    "cs2",
-      "user": "nasadmin2",
-      "password": "xx2"
-    }
-]
-							   
+{
+    "cs1":  {
+                "user":  "nasadmin1",
+                "password":  "xx1"
+            },
+    "cs2":  {
+                "user":  "nasadmin2",
+                "password":  "pass2"
+            },
+    "cs5":  {
+                "user":  "nasadmin5",
+                "password":  "pass5"
+            }
+}							   
 .EXAMPLE
 
 vnx_file_replication_status.ps1 -ip X.X.X.X,X.X.X.X
@@ -47,7 +48,7 @@ param(
 	[string]$User,
 	[string]$Password,
     [string]$CredentialFile,
-    [string]$UpdateCredentialFile,
+    [switch]$UpdateCredentialFile,
     [switch]$help
 )
 
@@ -61,7 +62,7 @@ $ControlStationDetails=@{}
 
 
 
-function processParameters {
+function validateParameters {
     
     if( ($script:ControlStation -eq $null -and $script:CredentialFile -eq "" ) -or $script:help ) {
         "vnx_file_health_check.ps1 version $SCRIPT_VERSION"
@@ -69,7 +70,12 @@ function processParameters {
         "Usage:"
         ""
          "vnx_file_health_check.ps1 -ControlStation <cs1>,[<cs2>] -User <user name> -Password <password> -CredentialFile <file> -UpdateCredentialFile -Help"
-        exit
+        exit 1
+    }
+
+    if( $script:UpdateCredentialFile -and $script:CredentialFile -eq "" ) {
+        "ERROR: must provide credential file name with -UpdateCredentialFile option"
+         exit 1
     }
 }
 
@@ -86,37 +92,86 @@ function readCredentialFile( $credFile ) {
 
     try
     {
-        $creds_array=(cat $credFile  -ErrorAction stop) -join "`n"  | convertfrom-json
+        cat -raw $credFile  -ErrorAction stop  | convertfrom-json
     }
     
     catch {
-        Write-Host "Couldn't open file $credfile"
-        exit 1
+        if( $script:UpdateCredentialFile ) {
+            New-Object -TypeName psobject
+        }
+        else {
+            Write-Host "Couldn't open file $credfile"
+            exit 1
+        }
     }
-
-
-    $cred_dictionary=[ordered]@{}
-
-    foreach( $cred in $creds_array ) {
-        $cred_dictionary.add( $cred.cs_name, @{ user=$cred.user;password=$cred.password } )
-    }
-
-    $cred_dictionary
-
 }
 
-processParameters
+function updateCredentialFile( $creds ) {
+
+    foreach( $cs in $ControlStation ) {
+
+        if( $script:User -eq "" -or $script:Password -eq "" ) {
+        
+            $secureCreds=Get-Credential -UserName $script:User -Message "Credentials for $cs" # what if cancelled?
+            $user=$secureCreds.UserName
+            $password=$secureCreds.Password | ConvertFrom-SecureString 
+        
+        } else {
+        
+            $user=$script:User
+            $password=$script:Password | ConvertTo-SecureString -AsPlainText -Force | ConvertFrom-SecureString
+        
+        }
+
+        if( $script:credentials.$cs -eq $null ) {
+            
+            $creds=@{user=$user;password=$password}
+            $credObject=New-Object -TypeName PSObject -Property $creds
+
+            $script:credentials | Add-Member -NotePropertyName $cs -NotePropertyValue $credObject
+            
+        } else {
+            
+                $script:credentials.$cs.user=$user
+                $script:credentials.$cs.password=$password
+            
+        }
+
+        try
+        {
+            ConvertTo-Json $script:credentials | out-file -Encoding ascii -FilePath $script:CredentialFile
+        }
+    
+        catch {
+            Write-Host "Couldn't update credential file $script:CredentialFile"
+        }
+    }
+}
+
+
+validateParameters
 
 
 $credentials=readCredentialFile $CredentialFile
 
-$credentials.cs2
+if( $UpdateCredentialFile ) {
+    updateCredentialFile $credentials
+}
 
 printReportHeader
 
 
-<#foreach( $cs in $ControlStation ) {
-        $cs
-}#>
+
+foreach( $cs in $ControlStation ) {
+
+        if( $UpdateCredentialFile ) {
+
+ 
+
+        } else {
+            # run health check
+        }
+
+}
 
 
