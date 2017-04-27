@@ -4,6 +4,8 @@
 This script allows to create and update credential file in JSON format. The file can be used by
 other scripts to source credentials for devices access. Passwords are stored in encrypted form.
 
+VERSION=1.0
+
 .DESCRIPTION
 
 Parameter Set "Update"
@@ -79,23 +81,28 @@ Param
 )
 
 Begin {
-    $SCRIPT_VERSION="1.0"
 }
 
 Process
 {
 
-    function listCredentials( $credFile ) {
+    function readCredentialFile( $credFile ) {
 
         try
         {
-            $creds=cat -raw $credFile  -ErrorAction stop  | convertfrom-json
+            cat -raw $credFile  -ErrorAction stop  | convertfrom-json
         }
     
         catch {
             Write-Host "Couldn't open credential file $credFile"
             exit 1
         }
+
+    }
+
+    function listCredentials( $credFile ) {
+
+        $creds=readCredentialFile $credFile
 
         $deviceCredentials=@()
 
@@ -110,30 +117,19 @@ Process
         $deviceCredentials | ft -AutoSize
     }
 
-    function UpdateCredentialFile {
+    function UpdateCredentialFile( $devList, $credFile, $User, $Password ) {
 
-        param(
-            [string[]]$DeviceName,
-	        [string]$User,
-	        [string]$Password,
-            [string]$CredentialFile,
-            [switch]$UpdateCredentialFile,
-            [switch]$ListCredentials,
-            [switch]$help
-        )
+        foreach( $dev in $devList ) {
 
-        foreach( $cs in $ControlStation ) {
-
-            if( $script:User -eq "" -or $script:Password -eq "" ) {
+            if( $User -eq "" -or $Password -eq "" ) {
         
-                $secureCreds=Get-Credential -UserName $script:User -Message "Credentials for $cs" # what if cancelled?
+                $secureCreds=Get-Credential -UserName $User -Message "Credentials for $dev" # what if cancelled?
                 $user=$secureCreds.UserName
                 $password=$secureCreds.Password | ConvertFrom-SecureString 
         
             } else {
         
-                $user=$script:User
-                $password=$script:Password | ConvertTo-SecureString -AsPlainText -Force | ConvertFrom-SecureString
+                $password=$Password | ConvertTo-SecureString -AsPlainText -Force | ConvertFrom-SecureString
         
             }
 
