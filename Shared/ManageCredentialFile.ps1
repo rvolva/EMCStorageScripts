@@ -6,7 +6,7 @@ other scripts to source credentials used to access devices.
 
 .DESCRIPTION
 
-Parameter set 1
+Parameter Set "Update"
 
 -DeviceName <dev1>[,<dev2>] device DNS name or IP address
 -User <user name>			optional, user name to access specified device(s). Same user name can be used for all devices 
@@ -14,11 +14,11 @@ Parameter set 1
 -CredentialFile <file>      credential file name 
 -UpdateCredentialFile       update credential file
        
-Parameter Set 2
+Parameter Set "List"
 -ListCredentials            list credentials in the credential file
 -CredentialFile <file>      credential file name
 
-Parameter Set 3
+Parameter Set "Help"
 -Help                       print help
 
 Credential File Format:
@@ -84,6 +84,7 @@ Begin {
 
 Process
 {
+
     function readCredentialFile( $credFile ) {
 
         if( $credFile -eq "" ) {
@@ -166,7 +167,7 @@ Process
 
     switch ( $PsCmdlet.ParameterSetName )
     {
-        'Help' { printHelp }
+        'Help' { get-help $script:MyInvocation.MyCommand.Definition }
         'List' { "List" }
         'Update' { "Update" }
     }
