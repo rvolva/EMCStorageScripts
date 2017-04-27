@@ -117,43 +117,51 @@ Process
         $deviceCredentials | ft -AutoSize
     }
 
-    function UpdateCredentialFile( $devList, $credFile, $User, $Password ) {
+    function UpdateCredentialFile( $devList, $credFile, $commandLineUser, $commandLinePassword ) {
+
+        $creds=readCredentialFile $credFile
 
         foreach( $dev in $devList ) {
 
-            if( $User -eq "" -or $Password -eq "" ) {
+            if( $commandLineUser -eq "" -or $commandLinePassword -eq "" ) {
         
-                $secureCreds=Get-Credential -UserName $User -Message "Credentials for $dev" # what if cancelled?
+                $secureCreds=Get-Credential -UserName $commandLineUser -Message "Credentials for $dev" # what if cancelled?
+
+                if( $secureCreds -eq $null ) {
+                    continue
+                }
+                
                 $user=$secureCreds.UserName
                 $password=$secureCreds.Password | ConvertFrom-SecureString 
-        
+
             } else {
-        
-                $password=$Password | ConvertTo-SecureString -AsPlainText -Force | ConvertFrom-SecureString
+
+                $user=$commandLineUser
+                $password=$commandLinePassword | ConvertTo-SecureString -AsPlainText -Force | ConvertFrom-SecureString
         
             }
 
-            if( $script:credentials.$cs -eq $null ) {
+            if( $creds.$dev -eq $null ) {
             
-                $creds=@{user=$user;password=$password}
-                $credObject=New-Object -TypeName PSObject -Property $creds
+                $cred=@{user=$user;password=$password}
+                $credObject=New-Object -TypeName PSObject -Property $cred
 
-                $script:credentials | Add-Member -NotePropertyName $cs -NotePropertyValue $credObject
+                $creds | Add-Member -NotePropertyName $dev -NotePropertyValue $credObject
             
             } else {
             
-                    $script:credentials.$cs.user=$user
-                    $script:credentials.$cs.password=$password
+                    $creds.$dev.user=$user
+                    $creds.$dev.password=$password
             
             }
 
             try
             {
-                ConvertTo-Json $script:credentials | out-file -Encoding ascii -FilePath $script:CredentialFile
+                ConvertTo-Json $creds | out-file -Encoding ascii -FilePath $credFile
             }
     
             catch {
-                Write-Host "Couldn't update credential file $script:CredentialFile"
+                Write-Host "Couldn't update credential file $credFile"
             }
         }
     }
@@ -169,7 +177,7 @@ Process
 
         'List' { listCredentials $CredentialFile }
 
-        'Update' { "Update" }
+        'Update' { UpdateCredentialFile $DeviceName $CredentialFile $User $Password }
     }
 
 }
