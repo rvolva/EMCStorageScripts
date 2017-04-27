@@ -2,7 +2,7 @@
 
 .SYNOPSIS
 This script allows to create and update credential file in JSON format. The file can be used by
-other scripts to source credentials used to access devices.
+other scripts to source credentials for devices access. Passwords are stored in encrypted form.
 
 .DESCRIPTION
 
@@ -85,27 +85,29 @@ Begin {
 Process
 {
 
-    function readCredentialFile( $credFile ) {
-
-        if( $credFile -eq "" ) {
-            return
-        }
-
+    function listCredentials( $credFile ) {
 
         try
         {
-            cat -raw $credFile  -ErrorAction stop  | convertfrom-json
+            $creds=cat -raw $credFile  -ErrorAction stop  | convertfrom-json
         }
     
         catch {
-            if( $script:UpdateCredentialFile ) {
-                New-Object -TypeName psobject
-            }
-            else {
-                Write-Host "Couldn't open file $credfile"
-                exit 1
-            }
+            Write-Host "Couldn't open credential file $credFile"
+            exit 1
         }
+
+        $deviceCredentials=@()
+
+        foreach( $dev in ($creds | Get-Member -MemberType NoteProperty).Name ) {
+            $deviceCredential=[ordered]@{Device=$dev;User=$creds.$dev.user;Password=$creds.$dev.password}    
+            
+            $deviceCredObj=New-Object -TypeName psobject -Property $deviceCredential
+            
+            $deviceCredentials+=$deviceCredObj
+        }
+
+        $deviceCredentials | ft -AutoSize
     }
 
     function UpdateCredentialFile {
@@ -168,7 +170,9 @@ Process
     switch ( $PsCmdlet.ParameterSetName )
     {
         'Help' { get-help $script:MyInvocation.MyCommand.Definition }
-        'List' { "List" }
+
+        'List' { listCredentials $CredentialFile }
+
         'Update' { "Update" }
     }
 
