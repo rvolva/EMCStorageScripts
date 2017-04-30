@@ -6,14 +6,60 @@ VNX for File Health Check Report
 .DESCRIPTION
 The script generates VNX for File health check report.
 
-Parameters:
+.PARAMETER ControlStation
 
--ControlStation <VNX CS IP>[,<IP>]  	VNX Control Station IP addresses or host names, if omitted the script will run against all control stations in the credential file
--User <user name>			VNX control station user name, required if credintial file is not provided
--Password <password>		password, will prompt for password, if ommited and there is no password in the credential file or credintial file is not specified
--CredentialFile <file>      json file with logon credentials (passwords are encrypted), creates the file if it doesn't exist
--UpdateCredentialFile       saves credentials  into the credfile
--Help                       print help
+IP address or DNS name of a control station(s)
+
+.PARAMETER AllControlStations
+
+Run the script against all control stations in the credential file.
+
+.PARAMETER User
+
+VNX control station user name
+
+.PARAMETER Password
+
+VNX Control Station password 
+
+Will prompt for a password, if ommited and there is no password in the credential file or credintial file is not specified
+
+.PARAMETER SSHKey
+
+SSH private key file
+
+.PARAMETER CredentialFile
+
+Json file with logon credentials. Password must be stored as secure strings. For the script to be able to decode the passwords, the credential file must be created using the same Windows account.
+
+.PARAMETER Help
+
+Print help
+
+.EXAMPLE
+vnx_file_health_check.ps1 -ControlStation cs1,cs2
+
+.EXAMPLE
+vnx_file_health_check.ps1 -Name cs1,cs2
+
+.EXAMPLE
+vnx_file_health_check.ps1 -ControlStation cs1,cs2 -CredentialFile credentials.json
+
+.EXAMPLE
+vnx_file_health_check.ps1 -ControlStation cs1,cs2 -User nasadmin
+
+
+.EXAMPLE
+vnx_file_health_check.ps1 -AllControlStations -credfile cs_cred_file.json 
+
+.EXAMPLE
+vnx_file_health_check.ps1 -All -credfile cs_cred_file.json 
+
+.EXAMPLE
+vnx_file_health_check.ps1 -cs1,cs2 -SSHKey id_rsa 
+
+
+.NOTES
 
 Credential File Format:
 
@@ -31,37 +77,53 @@ Credential File Format:
                 "password":  "pass5"
             }
 }							   
-.EXAMPLE
 
-vnx_file_replication_status.ps1 -ip X.X.X.X,X.X.X.X
-vnx_file_replication_status.ps1 -credfile cs_cred_file.json -all_cs
-vnx_file_replication_status.ps1 -credfile cs_cred_file.json -ip vnx01_cs0 -user nasadmin -update_cred_file
-
-.NOTES
 
 .LINK
 
 #>
 
-param(
+[CmdletBinding(DefaultParameterSetName="Help")]
+Param(
+
+    [Parameter(Mandatory=$true,ValueFromPipeline=$true,Position=0,ParameterSetName="CredentialFile")]
+    [Parameter(Mandatory=$true,ValueFromPipeline=$true,Position=0,ParameterSetName="UserPassword")]
+    [Parameter(Mandatory=$true,ValueFromPipeline=$true,Position=0,ParameterSetName="SSHKey")]
+    [Alias("Name")]
     [string[]]$ControlStation,
-	[string]$User,
-	[string]$Password,
+
+    [Parameter(Mandatory=$true,Position=0,ParameterSetName="AllControlStations")]
+    [Alias("All")]
+    [switch]$AllControlStations,
+
+    [Parameter(Mandatory=$true,ParameterSetName="UserPassword")]
+    [Parameter(Mandatory=$true,ParameterSetName="SSHKey")]
+    [string]$User,
+
+    [Parameter(ParameterSetName="UserPassword")]
+    [string]$Password,
+
+    [Parameter(Mandatory=$true,ParameterSetName="CredentialFile")]
+    [Parameter(Mandatory=$true,ParameterSetName="AllControlStations")]
+    [Alias("File")]
     [string]$CredentialFile,
-    [switch]$UpdateCredentialFile,
-    [switch]$help
+
+    [Parameter(Mandatory=$true,ParameterSetName="SSHKey")]
+    [string]$SSHKey,
+
+
+    [Parameter(ParameterSetName="Help")]
+    [switch]$Help,
+
+    [Parameter(ValueFromRemainingArguments=$true)] 
+    $vars
+
 )
-
-$SCRIPT_VERSION="1.0"
-
-#$ControlStationList=@()
-$ControlStationCredentials=[ordered]@{}
-$ControlStationDetails=@{}
 
 #$credentials=if( $user -ne "" -and $password -ne "" ) { "-user $user -password $password -scope 0" }
 
 
-
+<#
 function validateParameters {
     
     if( ($script:ControlStation -eq $null -and $script:CredentialFile -eq "" ) -or $script:help ) {
@@ -78,100 +140,95 @@ function validateParameters {
          exit 1
     }
 }
+#>
 
-function printReportHeader {
-    "Version $SCRIPT_VERSION"
-}
+Begin {
 
-function readCredentialFile( $credFile ) {
+    $SCRIPT_VERSION="1.0"
 
-    if( $credFile -eq "" ) {
-        return
+
+    function printReportHeader {
+        "Script Version $SCRIPT_VERSION"
+        "Date: {0}" -f (Get-Date)
     }
 
-
-    try
-    {
-        cat -raw $credFile  -ErrorAction stop  | convertfrom-json
-    }
-    
-    catch {
-        if( $script:UpdateCredentialFile ) {
-            New-Object -TypeName psobject
-        }
-        else {
-            Write-Host "Couldn't open file $credfile"
-            exit 1
-        }
-    }
-}
-
-function updateCredentialFile( $creds ) {
-
-    foreach( $cs in $ControlStation ) {
-
-        if( $script:User -eq "" -or $script:Password -eq "" ) {
-        
-            $secureCreds=Get-Credential -UserName $script:User -Message "Credentials for $cs" # what if cancelled?
-            $user=$secureCreds.UserName
-            $password=$secureCreds.Password | ConvertFrom-SecureString 
-        
-        } else {
-        
-            $user=$script:User
-            $password=$script:Password | ConvertTo-SecureString -AsPlainText -Force | ConvertFrom-SecureString
-        
-        }
-
-        if( $script:credentials.$cs -eq $null ) {
-            
-            $creds=@{user=$user;password=$password}
-            $credObject=New-Object -TypeName PSObject -Property $creds
-
-            $script:credentials | Add-Member -NotePropertyName $cs -NotePropertyValue $credObject
-            
-        } else {
-            
-                $script:credentials.$cs.user=$user
-                $script:credentials.$cs.password=$password
-            
-        }
+    function readCredentialFile( $credentialFile ) {
 
         try
         {
-            ConvertTo-Json $script:credentials | out-file -Encoding ascii -FilePath $script:CredentialFile
+            cat -raw $credentialFile  -ErrorAction stop  | convertfrom-json
         }
     
         catch {
-            Write-Host "Couldn't update credential file $script:CredentialFile"
+            Write-Host "Couldn't open credential file $credentialFile"
+            exit 1
         }
     }
+
+    if( $PsCmdlet.ParameterSetName -eq "Help" ) {
+        get-help $script:MyInvocation.MyCommand.Definition
+        exit 1
+    }
+    
+    if( $vars ) {
+        "ERROR: unknown argument $vars"
+        exit 1
+    }
+
+    if( $CredentialFile ) {
+        $credentials=readCredentialFile $CredentialFile
+    }
+
+    if( $PsCmdlet.ParameterSetName -eq "UserPassword" -and ! $Password ) {
+        $Password = Read-Host "$User password: "
+    } 
+    
+    if( $AllControlStations ) {
+
+        $ControlStation=@()
+    
+        foreach( $cs in ( $credentials | Get-Member -MemberType NoteProperty).Name ) {
+            $ControlStation+=$cs
+        }
+    }
+
+    printReportHeader
+
 }
 
-
-validateParameters
-
-
-$credentials=readCredentialFile $CredentialFile
-
-if( $UpdateCredentialFile ) {
-    updateCredentialFile $credentials
-}
-
-printReportHeader
+Process {
 
 
+    function runHealthCheck( $credentials ) {
+        
+        foreach( $cs in ($credentials | Get-Member -MemberType NoteProperty).Name ) {
+            $cs
+        }
+    }
 
-foreach( $cs in $ControlStation ) {
-
-        if( $UpdateCredentialFile ) {
-
- 
-
-        } else {
-            # run health check
+    switch ( $PsCmdlet.ParameterSetName )
+    {
+        'CredentialFile'
+        {     
+            "ControlStationWithCredFile" ; break 
         }
 
+        'UserPassword' 
+        { 
+            "UserPassword"
+            break 
+        }
+
+        'AllControlStations' 
+        {
+            "AllControlStations"
+            break 
+        }
+
+        'SSHKey' 
+        {
+            "SSH Key"
+        }
+    }
+
 }
-
-
