@@ -32,6 +32,11 @@ SSH private key file
 
 Json file with logon credentials. Password must be stored as secure strings. For the script to be able to decode the passwords, the credential file must be created using the same Windows account.
 
+.PARAMETER -HealthCheck
+
+Define type of health check to run
+
+
 .PARAMETER Help
 
 Print help
@@ -40,23 +45,22 @@ Print help
 vnx_file_health_check.ps1 -ControlStation cs1,cs2
 
 .EXAMPLE
-vnx_file_health_check.ps1 -Name cs1,cs2
+vnx_file_health_check.ps1 -Name cs1,cs2 -HealthCheck Replication
 
 .EXAMPLE
-vnx_file_health_check.ps1 -ControlStation cs1,cs2 -CredentialFile credentials.json
+vnx_file_health_check.ps1 -ControlStation cs1,cs2 -CredentialFile credentials.json -HealthCheck Replication
 
 .EXAMPLE
-vnx_file_health_check.ps1 -ControlStation cs1,cs2 -User nasadmin
-
-
-.EXAMPLE
-vnx_file_health_check.ps1 -AllControlStations -credfile cs_cred_file.json 
+vnx_file_health_check.ps1 -ControlStation cs1,cs2 -User nasadmin -HealthCheck Replication
 
 .EXAMPLE
-vnx_file_health_check.ps1 -All -credfile cs_cred_file.json 
+vnx_file_health_check.ps1 -AllControlStations -credfile cs_cred_file.json -HealthCheck Replication
 
 .EXAMPLE
-vnx_file_health_check.ps1 -cs1,cs2 -SSHKey id_rsa 
+vnx_file_health_check.ps1 -All -credfile cs_cred_file.json -HealthCheck Replication
+
+.EXAMPLE
+vnx_file_health_check.ps1 -cs1,cs2 -SSHKey id_rsa -HealthCheck Replication
 
 
 .NOTES
@@ -111,6 +115,8 @@ Param(
     [Parameter(Mandatory=$true,ParameterSetName="SSHKey")]
     [string]$SSHKey,
 
+    [ValidateSet(“Replication”)]
+    [string[]]$HealthCheck="Replication",
 
     [Parameter(ParameterSetName="Help")]
     [switch]$Help,
@@ -120,36 +126,20 @@ Param(
 
 )
 
-#$credentials=if( $user -ne "" -and $password -ne "" ) { "-user $user -password $password -scope 0" }
 
-
-<#
-function validateParameters {
-    
-    if( ($script:ControlStation -eq $null -and $script:CredentialFile -eq "" ) -or $script:help ) {
-        "vnx_file_health_check.ps1 version $SCRIPT_VERSION"
-        ""
-        "Usage:"
-        ""
-         "vnx_file_health_check.ps1 -ControlStation <cs1>,[<cs2>] -User <user name> -Password <password> -CredentialFile <file> -UpdateCredentialFile -Help"
-        exit 1
-    }
-
-    if( $script:UpdateCredentialFile -and $script:CredentialFile -eq "" ) {
-        "ERROR: must provide credential file name with -UpdateCredentialFile option"
-         exit 1
-    }
-}
-#>
 
 Begin {
 
     $SCRIPT_VERSION="1.0"
+    $ControlStationList=@()
 
 
     function printReportHeader {
-        "Script Version $SCRIPT_VERSION"
+        "VNX FILE HEALTH CHECK"
+        "====================="
+        "Script Version: $SCRIPT_VERSION"
         "Date: {0}" -f (Get-Date)
+        ""
     }
 
     function readCredentialFile( $credentialFile ) {
@@ -185,50 +175,88 @@ Begin {
     
     if( $AllControlStations ) {
 
-        $ControlStation=@()
-    
         foreach( $cs in ( $credentials | Get-Member -MemberType NoteProperty).Name ) {
-            $ControlStation+=$cs
+            $ControlStationList+=$cs
         }
     }
 
+    
     printReportHeader
 
 }
 
 Process {
+    $script:ControlStationList+=$ControlStation
 
+}
 
-    function runHealthCheck( $credentials ) {
+End {
+    
+    $SSHSessions
+
+    $healthCheckCommans=@{
+        Replication="ls -l"
+    }
+
+    function openSSHConnection ( $cs, $user, $password="default", $sshkey ) {
         
-        foreach( $cs in ($credentials | Get-Member -MemberType NoteProperty).Name ) {
-            $cs
+        if( $password -eq "" ) { $password="default" }
+
+        $securePassword=ConvertTo-SecureString -AsPlainText $password -Force
+        $psCred=New-Object -TypeName pscredential ($user,$securePassword)
+
+        if( $sshkey ) {
+            New-SSHSession -ComputerName $cs -AcceptKey -Credential $psCred -KeyFile $sshkey 
+        } else {
+            New-SSHSession -ComputerName $cs -AcceptKey -Credential $psCred
+        }
+    }
+    
+    function runHealthCheck( $sshSession, $healthCheckType ) {
+
+        #"Running health check for " + $SSHSession.Host
+
+        $invokeOut=Invoke-SSHCommand -SessionId $SSHSession.SessionID -Command $healthCheckCommans.$healthCheckType
+
+        if( $invokeOut.ExitStatus -eq 0 ) {
+            $invokeOut.Output
+        } else {
+            "ERROR: "
         }
     }
 
-    switch ( $PsCmdlet.ParameterSetName )
-    {
-        'CredentialFile'
-        {     
-            "ControlStationWithCredFile" ; break 
+    foreach( $cs in $ControlStationList ) {
+        
+        if( (openSSHConnection $cs $user $Password $SSHKey) -eq $null ) {
+
+            "ERROR: connection to $cs failed"
+
+            $ControlStationList=$ControlStationList -notlike $cs
+
         }
 
-        'UserPassword' 
-        { 
-            "UserPassword"
-            break 
-        }
+    }
 
-        'AllControlStations' 
-        {
-            "AllControlStations"
-            break 
-        }
+    $SSHSessions=Get-SSHSession
 
-        'SSHKey' 
-        {
-            "SSH Key"
+    foreach( $healthCheckType in $healthCheck ) {
+
+        
+    
+        foreach( $cs in $ControlStationList ) {
+
+            "-- $cs $healthCheckType -----------------------------"
+
+            $SSHSession = $SSHSessions | where { $_.Host -eq $cs }
+
+            runHealthCheck $sshSessions $healthCheckType
+
         }
+    }
+
+    foreach( $SSHSession in $SSHSessions ) {
+        "removing SSH session " + $SSHSession.SessionId
+        [void](Remove-SSHSession $SSHSessions)
     }
 
 }
