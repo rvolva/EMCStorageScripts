@@ -195,7 +195,7 @@ End {
     $SSHSessions
 
     $healthCheckCommans=@{
-        Replication="ls -l"
+        Replication="/nas/bin/nas_replicate -list"
     }
 
     function openSSHConnection ( $cs, $user, $password="default", $sshkey ) {
@@ -221,7 +221,7 @@ End {
         if( $invokeOut.ExitStatus -eq 0 ) {
             $invokeOut.Output
         } else {
-            "ERROR: "
+            "ERROR: " + $invokeOut.ExitStatus
         }
     }
 
@@ -246,6 +246,7 @@ End {
         foreach( $cs in $ControlStationList ) {
 
             "-- $cs $healthCheckType -----------------------------"
+            ""
 
             $SSHSession = $SSHSessions | where { $_.Host -eq $cs }
 
