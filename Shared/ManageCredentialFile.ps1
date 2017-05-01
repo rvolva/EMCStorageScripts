@@ -1,48 +1,64 @@
 <#
 
 .SYNOPSIS
-This script allows to create and update credential file in JSON format. The file can be used by
-other scripts to source credentials for devices access. Passwords are stored in encrypted form.
+Create/update credential file in JSON format.
 
-VERSION=1.0
+VERSION=1.1
 
 .DESCRIPTION
 
-Parameter Set "Update"
+The file can be used by other scripts to source credentials for devices access. Passwords are stored in encrypted form.
 
--DeviceName <dev1>[,<dev2>] device DNS name or IP address
--User <user name>			optional, user name to access specified device(s). Same user name can be used for all devices 
--Password <password>		optional, password 
--CredentialFile <file>      credential file name 
--UpdateCredentialFile       update credential file
-       
-Parameter Set "List"
--ListCredentials            list credentials in the credential file
--CredentialFile <file>      credential file name
+.PARAMETER DeviceName
 
-Parameter Set "Help"
--Help                       print help
+Device DNS name or IP address
 
-Credential File Format:
+.PARAMETER User
 
-{
-    "cs1":  {
-                "user":  "nasadmin1",
-                "password":  "xx1"
-            },
-    "cs2":  {
-                "user":  "nasadmin2",
-                "password":  "pass2"
-            },
-    "cs5":  {
-                "user":  "nasadmin5",
-                "password":  "pass5"
-            }
-}							   
+Optional. User name to access specified device(s). Same user name can be used for all devices. The script will prompt for user name, if omitted.
+
+.PARAMETER Password
+
+Optional. Password
+
+.PARAMETER CredentialFile
+
+Credential file name 
+
+.PARAMETER UpdateCredentialFile
+
+Update credential file
+
+.PARAMETER ListCredentials
+
+List credentials in the credential file
+
+.PARAMETER Help
+
+Print help
+      
 .EXAMPLE
 
 
 .NOTES
+
+Credential File Format:
+
+{
+    "device1":  {
+                "user":  "admin1",
+                "password":  "XXXXXXXXXXXXXXXXXXXX"
+            },
+    "device2":  {
+                "user":  "admin2",
+                "password":  "XXXXXXXXXXXXXXXXXXXX"
+            },
+    "device3":  {
+                "user":  "admin3",
+                "password":  "XXXXXXXXXXXXXXXXXXXXXXX"
+            }
+}							   
+
 
 .LINK
 
@@ -65,10 +81,10 @@ Param
         [Parameter(Mandatory=$true,ParameterSetName="List")]
         [Alias("File")]
         [string]$CredentialFile,
-
-        [Parameter(ParameterSetName="Update")]
+        
+        [Parameter(Mandatory=$true,ParameterSetName="Update")]
         [switch]$UpdateCredentialFile=$True,
-
+        
         [Parameter(Mandatory=$true,ParameterSetName="List")]
         [switch]$ListCredentials,
 
@@ -107,6 +123,7 @@ Process
         $deviceCredentials=@()
 
         foreach( $dev in ($creds | Get-Member -MemberType NoteProperty).Name ) {
+
             $deviceCredential=[ordered]@{Device=$dev;User=$creds.$dev.user;Password=$creds.$dev.password}    
             
             $deviceCredObj=New-Object -TypeName psobject -Property $deviceCredential
@@ -114,18 +131,22 @@ Process
             $deviceCredentials+=$deviceCredObj
         }
 
-        $deviceCredentials | ft -AutoSize
+        $deviceCredentials 
     }
 
     function UpdateCredentialFile( $devList, $credFile, $commandLineUser, $commandLinePassword ) {
 
-        $creds=readCredentialFile $credFile
+        if( Test-Path $credFile ) {
+            $creds=readCredentialFile $credFile
+        } else {
+            $creds=New-Object -TypeName psobject
+        }
 
         foreach( $dev in $devList ) {
 
             if( $commandLineUser -eq "" -or $commandLinePassword -eq "" ) {
         
-                $secureCreds=Get-Credential -UserName $commandLineUser -Message "Credentials for $dev" # what if cancelled?
+                $secureCreds=Get-Credential -UserName $commandLineUser -Message "Credentials for $dev"
 
                 if( $secureCreds -eq $null ) {
                     continue
@@ -143,8 +164,7 @@ Process
 
             if( $creds.$dev -eq $null ) {
             
-                $cred=@{user=$user;password=$password}
-                $credObject=New-Object -TypeName PSObject -Property $cred
+                $credObject=New-Object -TypeName PSObject -Property @{user=$user;password=$password}
 
                 $creds | Add-Member -NotePropertyName $dev -NotePropertyValue $credObject
             
