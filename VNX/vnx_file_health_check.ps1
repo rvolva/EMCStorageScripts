@@ -214,14 +214,12 @@ End {
     
     function runHealthCheck( $sshSession, $healthCheckType ) {
 
-        #"Running health check for " + $SSHSession.Host
-
         $invokeOut=Invoke-SSHCommand -SessionId $SSHSession.SessionID -Command $healthCheckCommans.$healthCheckType
 
         if( $invokeOut.ExitStatus -eq 0 ) {
             $invokeOut.Output
         } else {
-            "ERROR: " + $invokeOut.ExitStatus
+            "Command {0} failed, SSH session exit code {1}" -f $healthCheckCommans.$healthCheckType, $invokeOut.ExitStatus
         }
     }
 
@@ -241,8 +239,6 @@ End {
 
     foreach( $healthCheckType in $healthCheck ) {
 
-        
-    
         foreach( $cs in $ControlStationList ) {
 
             "-- $cs $healthCheckType -----------------------------"
@@ -250,8 +246,8 @@ End {
 
             $SSHSession = $SSHSessions | where { $_.Host -eq $cs }
 
-            runHealthCheck $sshSessions $healthCheckType
-
+            runHealthCheck $sshSession $healthCheckType
+            ""
         }
     }
 
