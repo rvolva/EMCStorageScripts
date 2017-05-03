@@ -51,15 +51,6 @@ vnx_file_health_check.ps1 -Name cs1,cs2 -HealthCheck Replication
 vnx_file_health_check.ps1 -ControlStation cs1,cs2 -CredentialFile credentials.json -HealthCheck Replication
 
 .EXAMPLE
-vnx_file_health_check.ps1 -ControlStation cs1,cs2 -User nasadmin -HealthCheck Replication
-
-.EXAMPLE
-vnx_file_health_check.ps1 -AllControlStations -credfile cs_cred_file.json -HealthCheck Replication
-
-.EXAMPLE
-vnx_file_health_check.ps1 -All -credfile cs_cred_file.json -HealthCheck Replication
-
-.EXAMPLE
 vnx_file_health_check.ps1 -cs1,cs2 -SSHKey id_rsa -HealthCheck Replication
 
 
@@ -119,10 +110,7 @@ Param(
     [string[]]$HealthCheck="Replication",
 
     [Parameter(ParameterSetName="Help")]
-    [switch]$Help,
-
-    [Parameter(ValueFromRemainingArguments=$true)] 
-    $vars
+    [switch]$Help
 
 )
 
@@ -130,7 +118,7 @@ Param(
 
 Begin {
 
-    $SCRIPT_VERSION="1.0"
+    $SCRIPT_VERSION="1.1"
     $ControlStationList=@()
 
 
@@ -160,11 +148,6 @@ Begin {
         exit 1
     }
     
-    if( $vars ) {
-        "ERROR: unknown argument $vars"
-        exit 1
-    }
-
     if( $CredentialFile ) {
         $credentials=readCredentialFile $CredentialFile
     }
@@ -192,10 +175,8 @@ Process {
 
 End {
     
-    $SSHSessions
-
-    $healthCheckCommans=@{
-        Replication="/nas/bin/nas_replicate -list"
+    $healthCheckFunctions=@{
+        Replication="runReplicationCheck"
     }
 
     function openSSHConnection ( $cs, $user, $password="default", $sshkey ) {
@@ -212,12 +193,30 @@ End {
         }
     }
     
-    function runHealthCheck( $sshSession, $healthCheckType ) {
+    function runReplicationCheck ( $sshSession ) {
 
-        $invokeOut=Invoke-SSHCommand -SessionId $SSHSession.SessionID -Command $healthCheckCommans.$healthCheckType
+        $cmd="/nas/bin/nas_replicate -report -fields name,lastSyncTime,sourceStatus,destinationStatus,networkStatus,prevTransferRateKB,maxTimeOutOfSync"
+        #$cmd="/nas/bin/nas_replicate -list"
+
+        $invokeOut=Invoke-SSHCommand -SessionId $SSHSession.SessionID -Command $cmd
 
         if( $invokeOut.ExitStatus -eq 0 ) {
-            $invokeOut.Output
+            
+            $format=@(
+                @{name="Replication Name";e={$_.name}},
+                @{name="Src Status";e={ $_.sourceStatus -replace "^.*: ","" -replace "Replication session state is not accessible.","N/A" };a="center" },
+                @{name="Dest Status";e={$_.destinationStatus -replace "^.*: ","" -replace "Replication session state is not accessible.","N/A"};a="center"},
+                @{name="Network Status";e={$_.networkStatus -replace "^.*: ",""};a="center" },
+                @{name="Max Out of Sync Time(Min)";e={$_.maxTimeOutOfSync};a="center" },
+                @{name="Last Sync Time";e={$_.lastSyncTime} },
+                @{name="Last Sync Transfer Rate KB/s";e={ "{0:N0}" -f [int]$_.prevTransferRateKB}; a="right" }
+            )
+
+            $replicationItems=$invokeOut.Output | ConvertFrom-Csv 
+            $replicationItems | ft -auto $format
+                
+            
+
         } else {
             "Command {0} failed, SSH session exit code {1}" -f $healthCheckCommans.$healthCheckType, $invokeOut.ExitStatus
         }
@@ -246,13 +245,16 @@ End {
 
             $SSHSession = $SSHSessions | where { $_.Host -eq $cs }
 
-            runHealthCheck $sshSession $healthCheckType
+            $healthCheckFunction='{0} $SSHSession' -f $healthCheckFunctions.$healthCheckType
+
+            invoke-expression $healthCheckFunction
+
             ""
         }
     }
 
     foreach( $SSHSession in $SSHSessions ) {
-        "removing SSH session " + $SSHSession.SessionId
+        #"removing SSH session " + $SSHSession.SessionId
         [void](Remove-SSHSession $SSHSessions)
     }
 
