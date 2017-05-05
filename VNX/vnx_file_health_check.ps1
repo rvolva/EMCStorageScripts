@@ -207,9 +207,9 @@ End {
                 @{name="Src Status";e={ $_.sourceStatus -replace "^.*: ","" -replace "Replication session state is not accessible.","N/A" };a="center" },
                 @{name="Dest Status";e={$_.destinationStatus -replace "^.*: ","" -replace "Replication session state is not accessible.","N/A"};a="center"},
                 @{name="Network Status";e={$_.networkStatus -replace "^.*: ",""};a="center" },
-                @{name="Max Out of Sync Time(Min)";e={$_.maxTimeOutOfSync};a="center" },
                 @{name="Last Sync Time";e={$_.lastSyncTime} },
-                @{name="Last Sync Transfer Rate KB/s";e={ "{0:N0}" -f [int]$_.prevTransferRateKB}; a="right" }
+                @{name="Last Sync Transfer Rate KB/s";e={ "{0:N0}" -f [int]$_.prevTransferRateKB}; a="right"},
+                @{name="Max Out of Sync Time(Min)";e={$_.maxTimeOutOfSync};a="center" } 
             )
 
             $replicationItems=$invokeOut.Output | ConvertFrom-Csv 
