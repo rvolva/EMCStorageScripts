@@ -1,8 +1,43 @@
-﻿
+﻿<#
 
-# == VPLEX functions ===================================================
+.SYNOPSIS
 
-# VERSION: 1.0
+EMC VPLEX Functions
+
+.DESCRIPTION
+EMC VPLEX Functions
+
+VERSION: 1.0
+
+.EXAMPLE
+
+PS> run-vplexRESTCmd -ip 192.168.5.5 -HTTPMethod GET -Username service -Cmd "/clusters"
+
+.NOTES
+
+
+.LINK
+
+#>
+
+function disableHTTPSCerticateValidation {
+
+        if( -not ("TrustAllCertsPolicy" -as [type])  ) {
+
+            Add-type @"
+                using System.Net;
+                using System.Security.Cryptography.X509Certificates;
+
+                public class TrustAllCertsPolicy : ICertificatePolicy {
+                    public bool CheckValidationResult (ServicePoint srvPoint, X509Certificate certificate, WebRequest request, int certificateProblem) {
+                        return true;
+                    }
+                }
+"@
+        [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
+
+        }
+}
 
 function run-vplexRESTCmd {
       param(
@@ -21,21 +56,7 @@ function run-vplexRESTCmd {
             return
         } 
 
-        if( -not ("TrustAllCertsPolicy" -as [type])  ) {
-
-Add-type @"
-                    using System.Net;
-                    using System.Security.Cryptography.X509Certificates;
-
-                    public class TrustAllCertsPolicy : ICertificatePolicy {
-                        public bool CheckValidationResult (ServicePoint srvPoint, X509Certificate certificate, WebRequest request, int certificateProblem) {
-                            return true;
-                        }
-                    }
-"@
-        [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
-
-        }
+        disableHTTPSCerticateValidation
 
         if( $credfile ) {
             
