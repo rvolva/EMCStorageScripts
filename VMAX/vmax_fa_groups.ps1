@@ -1,7 +1,7 @@
 <#
 
 .SYNOPSIS
-The script produces a report that shows VMAX front port groupings.
+Show VMAX front port groupings
 
 .DESCRIPTION
 
@@ -18,9 +18,13 @@ The script uses EMC Solution Enabler (SE) command "symaccess" to source data. Lo
 
 Symmetrix ID
 
-.PARAMETER detail
+.PARAMETER Detail
 
 show detailed masking view list
+
+.PARAMETER MaskingView
+
+Limit output to a specific masking view only
 
 .EXAMPLE
 
@@ -28,7 +32,11 @@ PS> vmax_fa_groups.ps1 -sid 1234,4563
 
 .EXAMPLE
 
-PS> vmax_fa_groups.ps1 -sid 1234,4563 -detail
+PS> vmax_fa_groups.ps1 -sid 1234,4563 -Detail
+
+.EXAMPLE
+
+PS> vmax_fa_groups.ps1 -sid 1234 -Detail -MaskingView mv1
 
 
 .NOTES
@@ -46,9 +54,15 @@ param(
     [string[]]$SID,
 
     [Parameter(Mandatory=$true,Position=0,ParameterSetName="DetailedReport")]
-	[switch]$detail,
+    [Alias("d")]
+	[switch]$Detail,
+
+    [Parameter(Position=0,ParameterSetName="DetailedReport")]
+    [Alias("mv")]
+	[string]$MaskingView,
 
     [Parameter(ParameterSetName="Help")]
+    [Alias("h")]
     [switch]$Help
 )
 
@@ -72,8 +86,15 @@ $env:SYMCLI_OUTPUT_MODE='XML'
 
 foreach( $symID in $SID ) {
 
-    [xml]$vmaxViews=cat symaccess-2247-list-view-detail.xml
-    #[xml]$vmaxViews=symaccess -sid $symID list view -detail
+    #[xml]$vmaxViews=cat symaccess-list-view-detail.xml
+
+    $symAccessCmd="symaccess -sid $symID list view -detail"
+
+    if( $MaskingView ) {
+        $symAccessCmd+=" -name {0}" -f $MaskingView
+    }
+
+    [xml]$vmaxViews=iex $symAccessCmd
 
     if( $vmaxViews -eq $null ) {
 	    "Unknown Symmetrix ID {0}" -f $symID
@@ -83,16 +104,21 @@ foreach( $symID in $SID ) {
     $portGroups=@{}
 
     $symID=$vmaxViews.SymCLI_ML.Symmetrix.Symm_Info.Symid
-    "-- VMAX $symID -------------------------------------------------"
+    "== VMAX {0} =======================================================================" -f $symID
+                                                      
     ""
 
     $viewNames=@()
 
     foreach( $view in $vmaxViews.SelectNodes('//View_Info') ) { 
 
+                #if( $MaskingView -and $view.view_name -ne $MaskingView ) {
+                #    continue
+                #}
+
                 $viewName=$view.view_name
 			
-			    if( $viewNames.contains( $viewName ) ) {
+			    if( $view.Totals.total_dev_cap_mb -eq $null -or $viewNames.contains( $viewName ) ) {
 				    continue
 			    } else {
 				    $viewNames+=$viewName
@@ -101,12 +127,13 @@ foreach( $symID in $SID ) {
 			    $initGrpName=$view.init_grpname
 			
 			
-    #			$view.port_info.Director_Identification | sort dir | 
 			    $portGroup=""
 			
 			    foreach( $dir_ident in ($view.port_info.Director_Identification | 
 					    sort @{ e={ $_.dir -replace "\D" -as [int]}},@{ e={ $_.dir -replace "FA-\d*" }},@{ e={ $_.port} } )) {
-				    $portGroup+=($dir_ident.dir -replace "FA-" ) + ":" + $dir_ident.port +  "_"
+
+				    #$portGroup+="{0,-5} " -f (($dir_ident.dir -replace "FA-" ) + ":" + $dir_ident.port +  " ")
+                    $portGroup+="{0} " -f (($dir_ident.dir -replace "FA-" ) + ":" + $dir_ident.port)
 			    }
 			
 			    $portGroup=$portGroup.trim("_")
@@ -119,12 +146,11 @@ foreach( $symID in $SID ) {
 			    $portGroups[$portGroup].viewCount++
 			    $portGroups[$portGroup].totalGB+=($view.Totals.total_dev_cap_mb/1KB)
 			    $portGroups[$portGroup].viewTotalGB[$viewName]=($view.Totals.total_dev_cap_mb/1KB)
-
 			
     }
 
     "{0,-45} {1,-5} {2,-10}" -f "FA Group","Views","Total GB"
-    "{0,-45} {1,-5} {2,-10}" -f "---------------------------","-----","----------"
+    "{0,-45} {1,-5} {2,-10}" -f ( "-" * 45 ) ,( "-" * 5 ), ( "-" * 10 )
 
 
     foreach( $portGroup in $portGroups.keys | 
@@ -135,13 +161,17 @@ foreach( $symID in $SID ) {
 	    #$portGroup + " " + $portGroups[$portGroup]
 	    "{0,-45} {1,5:N0} {2,10:N0}" -f $portGroup,$portGroups[$portGroup].viewCount,$portGroups[$portGroup].totalGB
 	
+         $arrayTotalGB+=$portGroups[$portGroup].totalGB
     }
+
+    "{0,-45} {1,-5} {2,-10}" -f ( "-" * 45 ) ,( "-" * 5 ), ( "-" * 10 )
+    "{0,-45} {1,5:N0} {2,10:N0}" -f "TOTAL:",$viewNames.count,$arrayTotalGB
 
     if( $detail ) {
 	    ""
 	    ""
 	    "{0,-45} {1,-40} {2,10:N0}" -f "FA Group","Masking View","Total GB"
-	    "{0,-45} {1,-40} {2,10:N0}" -f "-----------------------","-----------------","--------"
+	    "{0,-45} {1,-40} {2,10:N0}" -f ( "-" * 45 ) , ( "-" * 40 ) ,( "-" * 10 )
 	
 	    foreach( $portGroup in $portGroups.keys | 
 			    sort @{ e={ $_ -replace "\w{1}:.*" -as [int]}},
@@ -151,9 +181,10 @@ foreach( $symID in $SID ) {
 		    foreach( $viewName in $portGroups[$portGroup].viewTotalGB.keys | sort ) { 
 			    "{0,-45} {1,-40} {2,10:N0}" -f $portGroup, $viewName, $portGroups[$portGroup].viewTotalGB[$viewName]
 		    }
-		    "-----------------------------------------------------"
+		    "-" * 97
 	    }
     }
+    ""
 }
 
 
