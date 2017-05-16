@@ -3,7 +3,7 @@
 .SYNOPSIS
 Create/update credential file in JSON format.
 
-VERSION=1.3
+VERSION=1.3.1
 
 .DESCRIPTION
 
@@ -149,9 +149,16 @@ Process
             
             if( $ShowPassword ) {
                 
-                $secureStringPassword = $creds.$dev.password | ConvertTo-SecureString
-                $credObj = New-Object -type pscredential -args $creds.$dev.user,$secureStringPassword
-                $password = $credObj.GetNetworkCredential().Password
+                try {
+                    $secureStringPassword = $creds.$dev.password | ConvertTo-SecureString
+                    $credObj = New-Object -type pscredential -args $creds.$dev.user,$secureStringPassword
+                    $password = $credObj.GetNetworkCredential().Password
+                } 
+                
+                catch  {
+
+                    $password="ERROR: failed to decrypt the secure string"
+                }
 
             } else {
                 
