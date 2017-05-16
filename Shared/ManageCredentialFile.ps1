@@ -3,7 +3,7 @@
 .SYNOPSIS
 Create/update credential file in JSON format.
 
-VERSION=1.2
+VERSION=1.3
 
 .DESCRIPTION
 
@@ -31,7 +31,11 @@ Update credential file
 
 .PARAMETER ListCredentials
 
-List credentials in the credential file
+List credentials in the credential file. Passwords are shown as encrypted string.
+
+.PARAMETER ShowPassword
+
+Show passwords in clear text. Used together with -List switch. 
 
 .PARAMETER Help
 
@@ -39,6 +43,7 @@ Print help
       
 .EXAMPLE
 
+PS> ManageCredentialFile.ps1 -CredentialFile creds.json -List
 
 .NOTES
 
@@ -68,7 +73,7 @@ Credential File Format:
 Param
 (
         [Parameter(Mandatory=$true,Position=0,ParameterSetName="Update")]
-        [Parameter(Mandatory=$true,Position=0,ParameterSetName="Show")]
+        [Parameter(ParameterSetName="List")]
         [Alias("Name")]
         [string[]]$DeviceName,
 
@@ -80,7 +85,6 @@ Param
 
         [Parameter(Mandatory=$true,ParameterSetName="Update")]
         [Parameter(Mandatory=$true,ParameterSetName="List")]
-        [Parameter(Mandatory=$true,ParameterSetName="Show")]
         [Alias("File")]
         [string]$CredentialFile,
         
@@ -90,8 +94,8 @@ Param
         [Parameter(Mandatory=$true,ParameterSetName="List")]
         [switch]$ListCredentials,
 
-        [Parameter(Mandatory=$true,ParameterSetName="Show")]
-        [switch]$Show,
+        [Parameter(ParameterSetName="List")]
+        [switch]$ShowPassword,
 
 
         [Parameter(ParameterSetName="Help")]
@@ -119,25 +123,51 @@ Process
 
     }
 
-    function listCredentials( $credFile ) {
+    function listCredentials {
+        
+        param(
+            [string]$CredFile,
+            [string[]]$DeviceName,
+            [switch]$ShowPassword
+        )
 
-        $creds=readCredentialFile $credFile
+        $creds=readCredentialFile $CredFile
 
         $deviceCredentials=@()
 
-        foreach( $dev in ($creds | Get-Member -MemberType NoteProperty).Name ) {
+        if( $DeviceName ) {
+        
+            $devList = $DeviceName
 
-            $deviceCredential=[ordered]@{Device=$dev;User=$creds.$dev.user;Password=$creds.$dev.password}    
+        } else {
+
+            $devList = ($creds| Get-Member -MemberType NoteProperty).Name    
+
+        }
+
+        foreach( $dev in $devList ) {
             
+            if( $ShowPassword ) {
+                
+                $secureStringPassword = $creds.$dev.password | ConvertTo-SecureString
+                $credObj = New-Object -type pscredential -args $creds.$dev.user,$secureStringPassword
+                $password = $credObj.GetNetworkCredential().Password
+
+            } else {
+                
+                $password=$creds.$dev.password
+            
+            }
+
+            $deviceCredential=[ordered]@{Device=$dev;User=$creds.$dev.user;Password=$password }    
             $deviceCredObj=New-Object -TypeName psobject -Property $deviceCredential
-            
             $deviceCredentials+=$deviceCredObj
         }
 
         $deviceCredentials 
     }
 
-    function UpdateCredentialFile( $devList, $credFile, $commandLineUser, $commandLinePassword ) {
+    function updateCredentialFile( $devList, $credFile, $commandLineUser, $commandLinePassword ) {
 
         if( Test-Path $credFile ) {
             $creds=readCredentialFile $credFile
@@ -189,38 +219,24 @@ Process
         }
     }
 
-    function showCredential( $devList, $credFile ) {
-
-        $creds=readCredentialFile $credFile
-
-        foreach( $dev in $devList ) {
-
-            if( $creds.$dev ) {
-
-                $secureStringPassword=$creds.$dev.password | ConvertTo-SecureString
-
-                $credObj = New-Object -type pscredential -args $creds.$dev.user,$secureStringPassword
-
-                "User: {0}" -f $creds.$dev.user
-                "Password: {0}" -f $credObj.GetNetworkCredential().Password
-
-
-            } else {
-                "no such device: {0}" -f $dev
-            }
-        }
-    }
-
-
     switch ( $PsCmdlet.ParameterSetName )
     {
         'Help' { get-help $script:MyInvocation.MyCommand.Definition }
 
-        'List' { listCredentials $CredentialFile }
+        'List' {    
+                    $listFuncParams=@{ CredFile = $CredentialFile; ShowPassword=$ShowPassword }
+            
+                    if( $DeviceName ) {
+                        
+                        $listFuncParams.DeviceName=$DeviceName
+                    
+                    }
+                
+                    listCredentials @listFuncParams
+               }  
 
         'Update' { UpdateCredentialFile $DeviceName $CredentialFile $User $Password }
 
-        "Show"  { showCredential $DeviceName $CredentialFile  }
     }
 
 }
