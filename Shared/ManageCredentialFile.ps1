@@ -3,7 +3,7 @@
 .SYNOPSIS
 Create/update credential file in JSON format.
 
-VERSION=1.1
+VERSION=1.2
 
 .DESCRIPTION
 
@@ -68,6 +68,7 @@ Credential File Format:
 Param
 (
         [Parameter(Mandatory=$true,Position=0,ParameterSetName="Update")]
+        [Parameter(Mandatory=$true,Position=0,ParameterSetName="Show")]
         [Alias("Name")]
         [string[]]$DeviceName,
 
@@ -79,6 +80,7 @@ Param
 
         [Parameter(Mandatory=$true,ParameterSetName="Update")]
         [Parameter(Mandatory=$true,ParameterSetName="List")]
+        [Parameter(Mandatory=$true,ParameterSetName="Show")]
         [Alias("File")]
         [string]$CredentialFile,
         
@@ -88,11 +90,12 @@ Param
         [Parameter(Mandatory=$true,ParameterSetName="List")]
         [switch]$ListCredentials,
 
-        [Parameter(ParameterSetName="Help")]
-        [switch]$help,
+        [Parameter(Mandatory=$true,ParameterSetName="Show")]
+        [switch]$Show,
 
-        [Parameter(ValueFromRemainingArguments=$true)] 
-        $vars
+
+        [Parameter(ParameterSetName="Help")]
+        [switch]$help
 
 )
 
@@ -186,10 +189,28 @@ Process
         }
     }
 
-    if( $vars ) {
-        "ERROR: unknown argument $vars"
-        exit 1
+    function showCredential( $devList, $credFile ) {
+
+        $creds=readCredentialFile $credFile
+
+        foreach( $dev in $devList ) {
+
+            if( $creds.$dev ) {
+
+                $secureStringPassword=$creds.$dev.password | ConvertTo-SecureString
+
+                $credObj = New-Object -type pscredential -args $creds.$dev.user,$secureStringPassword
+
+                "User: {0}" -f $creds.$dev.user
+                "Password: {0}" -f $credObj.GetNetworkCredential().Password
+
+
+            } else {
+                "no such device: {0}" -f $dev
+            }
+        }
     }
+
 
     switch ( $PsCmdlet.ParameterSetName )
     {
@@ -198,6 +219,8 @@ Process
         'List' { listCredentials $CredentialFile }
 
         'Update' { UpdateCredentialFile $DeviceName $CredentialFile $User $Password }
+
+        "Show"  { showCredential $DeviceName $CredentialFile  }
     }
 
 }
