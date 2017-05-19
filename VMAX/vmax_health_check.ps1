@@ -1,18 +1,17 @@
 ﻿<#
 
 .SYNOPSIS
+
 Health Check script for EMC VMAX2 and VMAX3
 
 .DESCRIPTION
-The script uses Solution Enabler (SE) commands to get VMAX 2 health check data: 
-- hardware failures
-- pool utilization
-- RDF pair status
+
+The script uses Solution Enabler (SE) commands to fetch required data: 
 
 Parameters:
 
 -SID <Symmetrix ID>            self explanatory
--sidlist <file>                   a text file containing list of SIDs one per line, lines starting with # are excluded
+-sidlist <file>                a text file containing list of SIDs one per line, lines starting with # are excluded
 
 -capacity                      show storage capacity
 -rdf                           show RDF pair state
@@ -25,8 +24,11 @@ Parameters:
 
 .EXAMPLE
 
-health_check_VMAX.ps1 -sidlist vmax_list.txt -hwfail -capacity
-health_check_VMAX.ps1 -sid 4534 -hwfail -capacity
+PS> health_check_VMAX.ps1 -sidlist vmax_list.txt -hwfail -capacity
+
+.EXAMPLE
+
+PS> health_check_VMAX.ps1 -sid 4534 -hwfail -capacity
 
 .NOTES
 
@@ -46,12 +48,9 @@ param(
     [switch]$loginfail,
     [switch]$all,
     [switch]$v
-#    [switch]$unused_tdev    future plan
-    
-    
 )
 
-$VERSION="6.7"
+$VERSION="6.8"
 
 $VMAXLIST=@()
 $UnknownSID=@()
@@ -376,8 +375,6 @@ function storageCapacityReport {
 
 function rdfReport {
 
-  
-
     $env:SYMCLI_OUTPUT_MODE='XML'
     
     "== VMAX RDF Group Pair Status ================================================="
@@ -415,8 +412,10 @@ function rdfReport {
 
                 $pair_state=$dev.RDF.RDF_Info.pair_state
 
-                if( $pair_state -eq "Split" -or $pair_state -eq "Suspended" ) {
-                    $pair_state+=" "+([datetime]::ParseExact($dev.RDF.Status.link_status_change_time,"ddd MMM dd HH:mm:ss yyyy",$null)).ToShortDateString()
+                if( $pair_state -in @("Split","Suspended","SyncInProg") ) {
+
+                    $pair_state+=" "+([datetime]::ParseExact($dev.RDF.Status.link_status_change_time,"ddd MMM dd HH:mm:ss yyyy",$null) | get-date -format g) #.ToShortDateString()
+                
                 }
 
                 $rdfgs[$rdfg][$pair_state]++
@@ -424,11 +423,13 @@ function rdfReport {
         }
         
         foreach( $rdfg in $rdfgs.keys | Sort-Object @{e={$_ -as [int]}} ) {
+
             $str="{0,5} {1,-16} " -f $rdfg,$rdfg_names[$rdfg]
             
             $pair_states=$rdfgs[$rdfg]
             
             foreach( $pair_state in $pair_states.keys | sort ) {
+
                 $num=$pair_states[$pair_state]
                 $str+="$pair_state" +" - " + $pair_states[$pair_state] + ", "
                 
