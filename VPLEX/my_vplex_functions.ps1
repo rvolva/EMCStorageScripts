@@ -149,6 +149,7 @@ function run-vplexRESTCmd {
             $jsonserial.MaxJsonLength  = 20MB
             $jsonserial.DeserializeObject( $webReply.content )   
 
+            return $jsonserial
 
             <#
             $webReplyContent=convertfrom-json $webReply.content
@@ -184,4 +185,37 @@ function get-vplexstorageviews {
         run-vplexRESTCmd -ip $ip -Cmd "/clusters/*/exports/storage-views/*"
 }
 
+function get-vplexvirtualvolumes {
+
+      param(
+            [string]  $IP,
+            [string]  $Username,
+            [string]  $Password
+            
+        )
+
+        if( -not $IP ) {
+            "Usage: get-vplexvirtualvolumes -ip <vplex IP> [-Username <username>] [-Password <password>]"
+            return
+        } 
+
+        return run-vplexRESTCmd -ip $ip -Cmd "/clusters/*/virtual-volumes/*"
+}
+
+function get-vplexstoragevolumes {
+
+      param(
+            [string]  $IP,
+            [string]  $Username,
+            [string]  $Password
+            
+        )
+
+        if( -not $IP ) {
+            "Usage: get-vplexvirtualvolumes -ip <vplex IP> [-Username <username>] [-Password <password>]"
+            return
+        } 
+
+        return run-vplexRESTCmd -ip $ip -Cmd "/clusters/*/storage-elements/storage-volumes/*"
+}
 
