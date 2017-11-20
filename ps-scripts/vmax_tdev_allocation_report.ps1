@@ -4,23 +4,47 @@
 VMAX TDEV Report
 
 .DESCRIPTION
-The script generates a report that shows on one screen device ID, size, allocated capacity, and storage group
+The script generates a report that shows VMAX TDEV allocation.
 
-Parameters:
+.PARAMETER SID
 
--SID <symid>            self explanatory
--insg                   include only devices that are in a Storage Group
--notinsg                include only devices that are not in a Storage Group
--notinview              include only devices that are in SG but not in a view
--detail                 show device list, without this option the report will show totals only
--mindevsize <n GB>      exclude devices small than n GB
--maxallocationpct <n>   include devices with allocation percentage equal or less the specifed number 
--sgolderthandays <n>    include devices in Storage groups that were modified more than <n> days ago
+Symmerix IDs
+
+.PARAMETER insg
+
+Include only devices that are in a Storage Group
+
+.PARAMETER notinsg
+
+Include only devices that are not in a Storage Group
+
+.PARAMETER notinview              
+
+Include only devices that are in SG but not in a view
+
+.PARAMETER detail                 
+
+Show device list, without this option the report will show totals only
+
+.PARAMETER mindevsize <n>
+
+Exclude devices smaller than n GB only
+
+.PARAMETER maxallocationpct <n>   
+
+Include devices with allocation percentage equal or less <n>% only
+ 
+.PARAMETER  sgolderthandays <n>    
+
+Include devices in Storage groups that were modified more than <n> days ago
 
 .EXAMPLE
 
-vmax_tdev_allocation_report.ps1 -sid 5243 -notinsg
-vmax_tdev_allocation_report.ps1 -sid 5243,2343 -notinsg -detail
+PS> vmax_tdev_allocation_report.ps1 -sid 5243 -notinsg
+
+.EXAMPLE
+
+PS> vmax_tdev_allocation_report.ps1 -sid 5243,2343 -notinsg -detail
 
 
 .NOTES
@@ -47,7 +71,11 @@ param (
    
 ) 
 
+BEGIN {
 
+    $SCRIPT_VERSION="1.2.1"
+
+}
 
 PROCESS
 {
@@ -67,21 +95,25 @@ PROCESS
         $env:SYMCLI_OUTPUT_MODE='XML'
 
         try {
-            Write-Host "Collecting TDEV allocation data using: symcfg -sid $vmaxSID list -tdev"
-            [xml]$xmlSymCfg=symcfg -sid $vmaxSID list -tdev
-#           [xml]$xmlSymCfg=cat symcfg-list-tdev.2638.xml
+            Write-Host "Collecting TDEV allocation data: symcfg -sid $vmaxSID list -tdev"
+           [xml]$xmlSymCfg=symcfg -sid $vmaxSID list -tdev
+#           [xml]$xmlSymCfg=cat symcfg-list-tdev.xml
 
-            Write-Host "Collecting TDEV Storage Group assigment data using: symaccess -sid $vmaxSID -type stor list -dev '0:FFFFF'"
+            Write-Host "Collecting TDEV list data: symdev -sid $vmaxSID list -tdev"
+           [xml]$xmlSymDev=symdev -sid $vmaxSID list -tdev
+#           [xml]$xmlSymDev=cat symdev-list-tdev.xml
+
+            Write-Host "Collecting TDEV Storage Group assigment data: symaccess -sid $vmaxSID -type stor list -dev '0:FFFFF'"
             [xml]$xmlSymAccess=symaccess -sid $vmaxSID -type stor list -dev '0:FFFFF'
-#           [xml]$xmlSymAccess=cat symaccess-type-stor-list.2638.xml
+#           [xml]$xmlSymAccess=cat symaccess-type-stor-list.xml
 
-            Write-Host "Collecting RDF device list using: symrdf -sid $vmaxSID list"
-            [xml]$xmlSymRDF=symrdf -sid $vmaxSID list 
-#           [xml]$xmlSymRDF=cat symrdf-list.2638.xml
+            Write-Host "Collecting RDF device list: symrdf -sid $vmaxSID list"
+           [xml]$xmlSymRDF=symrdf -sid $vmaxSID list 
+#           [xml]$xmlSymRDF=cat symrdf-list.xml
 
-            Write-Host "Collecting Clone device list using: symclone -sid $vmaxSID list"
+            Write-Host "Collecting Clone device list: symclone -sid $vmaxSID list"
             [xml]$xmlSymClone=symclone -sid $vmaxSID list 
-#           [xml]$xmlSymClone=cat symclone-list.2638.xml
+#           [xml]$xmlSymClone=cat symclone-list.xml
 
 
         }
@@ -101,7 +133,7 @@ PROCESS
         $fullVMAXSID=$xmlSymCfg.SymCLI_ML.Symmetrix.Symm_Info.Symid
 
         ""
-        "--- VMAX $fullVMAXSID -------------------------------------------------"
+        "==== VMAX {0} ====================================================" -f $fullVMAXSID
         ""
 
         $totalTDEVcount=$xmlSymCfg.selectnodes("//Device[tdev_status='Bound']").count
@@ -127,9 +159,16 @@ PROCESS
             
             $processedTDEVcount++
 
-            $devInfo=[ordered]@{}
+
             $dev_name=$xmlDev.dev_name
-            $devInfo.add( "DevName", $xmlDev.dev_name)
+
+            # Filter out Int+TDEV devices that don't show up on symdev list output
+            if( $dev_name -notin $xmlSymDev.SymCLI_ML.Symmetrix.Device.Dev_Info.dev_name ) {
+                continue
+            }
+
+            $devInfo=[ordered]@{}
+            $devInfo.add( "DevName", $dev_name)
             $devInfo.add( "Size_GB", [int]$xmlDev.total_tracks_gb)
             $devInfo.add( "Used_GB", [int]$xmlDev.alloc_tracks_gb)
             $devInfo.add( "Used_Pct", [int]$xmlDev.pool_alloc_percent)
@@ -156,7 +195,7 @@ PROCESS
 
             $devInfo.add("SG_Name",$sgName)
             $devInfo.add("SG_Update_Date",$sgUpdateDate)
-            #$devInfo.add("SG_View_Count",$sgViewCount)
+            $devInfo.add("SG_View_Count",$sgViewCount)
 
             if( $xmlSymRDF.SelectNodes("//Dev_Info[dev_name='$dev_name']") -ne $null ) { 
                 $devInfo.add("RDF","R")
@@ -238,7 +277,7 @@ PROCESS
                        @{n="Used_GB";e={"{0:N0}" -f [long]$_.Used_GB};a="right"},
                        @{n="Used_%" ;e={"{0:N0}" -f [int]$_.Used_Pct};a="right"},
                        SG_Name,
-                       #@{n="ViewCount";e={$_.SG_View_Count};a="right"},
+                       @{n="ViewCount";e={$_.SG_View_Count};a="right"},
                        SG_Update_Date, 
                        @{n="RDF" ;e={$_.RDF};a="center"},
                        @{n="Clone" ;e={$_.Clone};a="center"} -AutoSize
@@ -247,7 +286,7 @@ PROCESS
     }
 
     if( $help -or ! $SID ) {
-        "Usage: vmax_tdev_allocation_report.ps1 -sid <SID1,SID2,...> [-insg|-notinsg] [-notinview] [-detail] [-mindevsize <n>] [-maxallocationpct <n>] -sgolderthandays <n>" 
+        "Usage: vmax_tdev_allocation_report.ps1 -sid <SID1[,SID2,...]> [-insg|-notinsg] [-notinview] [-detail] [-mindevsize <n>] [-maxallocationpct <n>] -sgolderthandays <n>" 
         exit
     }
 
@@ -257,6 +296,7 @@ PROCESS
 
     "Computer: " + (hostname)
     "Script: " + $MyInvocation.MyCommand.Definition
+    "Script Version: $SCRIPT_VERSION"
     ""
     "Input parameters:"
     if( $insg )               { "  -insg" }

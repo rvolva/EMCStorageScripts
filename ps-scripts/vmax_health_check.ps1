@@ -8,27 +8,50 @@ Health Check script for EMC VMAX2 and VMAX3
 
 The script uses Solution Enabler (SE) commands to fetch required data: 
 
-Parameters:
+.PARAMETER SID
 
--SID <Symmetrix ID>            self explanatory
--sidlist <file>                a text file containing list of SIDs one per line, lines starting with # are excluded
+Symmetrix ID
 
--capacity                      show storage capacity
--rdf                           show RDF pair state
--hw                            show H/W module status (excluding drives)
--hwfail                        show h/w failures
--login                         show initiator logins
--loginfail                     show initiator login failues only
--all                           all reports except for "-login" and "-hw"
--v	                           show version						  
+.PARAMETER inventory
+
+Show array inventory (model, serial number)
+
+.PARAMETER capacity
+
+Storage capacity
+
+.PARAMETER rdf
+
+RDF group state
+
+
+.PARAMETER hw
+
+Hardware module status (excluding drives)
+
+.PARAMETER hwfail
+
+Hardware failures
+
+.PARAMETER initlogin
+
+Initiator login status
+
+.PARAMETER initloginissues
+
+Initiator logins with issues
+
+.PARAMETER all
+
+All reports except for "-initlogin" and "-hw"
 
 .EXAMPLE
 
-PS> health_check_VMAX.ps1 -sidlist vmax_list.txt -hwfail -capacity
+PS> vmax_health_check.ps1 -sid 2343,2343 -all
 
 .EXAMPLE
 
-PS> health_check_VMAX.ps1 -sid 4534 -hwfail -capacity
+PS> vmax_health_check.ps1 -sid 4534 -hwfail -capacity -inventory
 
 .NOTES
 
@@ -37,31 +60,62 @@ PS> health_check_VMAX.ps1 -sid 4534 -hwfail -capacity
 
 #>
 
+[CmdletBinding(DefaultParameterSetName="Help")]
 param(
-    [string]$SID,
-    [string]$sidlist,
+    [Parameter(Mandatory=$true,Position=0,ParameterSetName="Switches")]
+    [Parameter(Mandatory=$true,Position=0,ParameterSetName="ALL")]
+    [string[]]$SID,
+
+    [Parameter(ParameterSetName="Switches")]
+    [switch]$inventory,
+
+    [Parameter(ParameterSetName="Switches")]
     [switch]$hwfail,
+
+    [Parameter(ParameterSetName="Switches")]
     [switch]$hw,
+
+    [Parameter(ParameterSetName="Switches")]
     [switch]$capacity,
+
+    [Parameter(ParameterSetName="Switches")]
     [switch]$rdf,
-    [switch]$login,
-    [switch]$loginfail,
+
+    [Parameter(ParameterSetName="Switches")]
+    [switch]$initlogin,
+
+    [Parameter(ParameterSetName="Switches")]
+    [switch]$initloginissues,
+    
+    [Parameter(Mandatory=$true,ParameterSetName="ALL")]
+    [Alias("a")]
     [switch]$all,
-    [switch]$v
+
+    [Parameter(ParameterSetName="Help")]
+    [Alias("h")]
+    [switch]$Help
+
 )
 
-$VERSION="6.8"
+$VERSION="6.9"
 
-$VMAXLIST=@()
-$UnknownSID=@()
 $VMAXINFO=[ordered]@{}
 
+function printHeader( [string]$header, [string]$sid="" ) {
+
+    if( $sid -ne "" ) {
+        $array="SID: $sid "
+    } 
+
+    ("== $array" + "$header ").PadRight( 90, "=" )
+    ""
+}
 
 function getArrayBaseInfo {
    
    $env:SYMCLI_OUTPUT_MODE='XML'
 
-   foreach( $sid in $VMAXLIST ) {
+   foreach( $sid in $SID ) {
 
 		$arrayInfo=[ordered]@{}
 
@@ -84,13 +138,6 @@ function getArrayBaseInfo {
 } # End of getArrayBaseInfo
 
 
-function removeUnknownSID {
-
-	foreach( $sid in $UnknownSID ) {
-		$VMAXLIST.remove($h)
-	}
-}
-
 function hwReport {
 
     param(
@@ -104,23 +151,18 @@ function hwReport {
     $env:SYMCLI_OUTPUT_MODE='XML'
 
     if( $failonly ) {
-        $reportTitle="== VMAX H/W Failures ================================================="
+        $header="HARDWARE FAILURES"
     } else {
-        "== VMAX H/W Status Report (exluding drives) ================================================="
+        $header = "HARDWARE STATUS REPORT (exluding drives)"
     }
-
-    ""
-
 
     foreach( $sid in $VMAXINFO.keys ) {
 
         $sid=$VMAXINFO.$sid.SerialNumber
         
         [xml]$xmlout=symcfg -sid $sid list -env_data -v
-#        [xml]$xmlout=(gc  "C:\Users\du82\Documents\Projects\2016-10-20 Health Check automation\symcfg-env_data-v.xml")
     
-        "-- VMAX $sid -------------------------------------------------"
-        ""
+        printHeader $header $sid
     
         $moduleStates=@()
 
@@ -218,7 +260,7 @@ function hwReport {
             "Failed Modules:"
             "---------------"
 
-            $moduleStates | Where-Object -Property State -Match "Failed"  
+            $moduleStates | Where-Object -Property State -Match "Failed"  | ft -AutoSize
             ""
 
             "Failed Drives:"
@@ -250,7 +292,7 @@ function storagePoolReport {
 
         $poolInfo=[ordered]@{}
 
-        $poolInfo."Pool Name"   =$_.pool_name
+        $poolInfo.PoolName      =$_.pool_name
         $poolInfo.Technology    =$_.technology
         $poolInfo.DevConfig     =$_.dev_config
         $poolInfo.TotalTB       =$_.total_tracks_tb
@@ -270,7 +312,7 @@ function storagePoolReport {
       
     $poolInfo=[ordered]@{}
 
-    $poolInfo."Pool Name"   ="TOTAL:"
+    $poolInfo.PoolName      ="TOTAL:"
     $poolInfo.Technology    =""
     $poolInfo.DevConfig     =""
     $poolInfo.TotalTB       =$xmlTotals.total_tracks_tb
@@ -282,14 +324,15 @@ function storagePoolReport {
 
     $pools+=New-Object -TypeName PSObject -Property $poolInfo
 
-
-    $pools | ft "Pool Name",Technology,DevConfig,
-            @{n="Total TB";e={ "{0:N0}" -f [int]$_.TotalTB };a="right"},
-            @{n="Used TB"; e={ "{0:N0}" -f [int]$_.UsedTB };a="right"},
-            @{n="Free TB"; e={ "{0:N0}" -f [int]$_.FreeTB };a="right"},
-            @{n="Used %"; e={ "{0:N0}" -f [int]$_.UsedPCT };a="right"},
-            @{n="Subscr TB"; e={ "{0:N0}" -f [int]$_.SubscribedTB };a="right"},
-            @{n="Subscr %"; e={ "{0:N0}" -f [int]$_.SubscribedPCT };a="right"} -AutoSize
+    $pools | ft @{n="Pool Name"; e={ "{0,-15}" -f $_.PoolName} },
+                @{n="Technology"; e={ "{0,-10}" -f $_.Technology } },
+                @{n="DevConfig"; e={ "{0,-12}" -f $_.DevConfig } },
+                @{n="Total TB";e={ "{0:N0}" -f [int]$_.TotalTB };a="right"},
+                @{n="Used TB"; e={ "{0:N0}" -f [int]$_.UsedTB };a="right"},
+                @{n="Free TB"; e={ "{0:N0}" -f [int]$_.FreeTB };a="right"},
+                @{n="Used %"; e={ "{0:N0}" -f [int]$_.UsedPCT };a="right"},
+                @{n="Subscr TB"; e={ "{0:N0}" -f [int]$_.SubscribedTB };a="right"},
+                @{n="Subscr %"; e={ "{0:N0}" -f [int]$_.SubscribedPCT };a="right"} -AutoSize
 
 }
 
@@ -338,30 +381,26 @@ function SRPReport {
 
     $srps+=New-Object -TypeName PSObject -Property $srpInfo
 
-    $srps | ft SRP_Name,
-            @{n="Total TB";e={ "{0:N0}" -f [int]$_.TotalTB };a="right"},
-            @{n="Used TB"; e={ "{0:N0}" -f [int]$_.UsedTB };a="right"},
-            @{n="Free TB"; e={ "{0:N0}" -f [int]$_.FreeTB };a="right"},
-            @{n="Used %"; e={ "{0:N0}" -f [int]$_.UsedPCT };a="right"},
-            @{n="Subscr TB"; e={ "{0:N0}" -f [int]$_.SubscribedTB };a="right"},
-            @{n="Subscr %"; e={ "{0:N0}" -f [int]$_.SubscribedPCT };a="right"} -AutoSize
+    $srps | ft  @{n="SRP Name";e={ "{0,-39}" -f $_.SRP_Name }},
+                @{n="Total TB";e={ "{0:N0}" -f [int]$_.TotalTB };a="right"},
+                @{n="Used TB"; e={ "{0:N0}" -f [int]$_.UsedTB };a="right"},
+                @{n="Free TB"; e={ "{0:N0}" -f [int]$_.FreeTB };a="right"},
+                @{n="Used %"; e={ "{0:N0}" -f [int]$_.UsedPCT };a="right"},
+                @{n="Subscr TB"; e={ "{0:N0}" -f [int]$_.SubscribedTB };a="right"},
+                @{n="Subscr %"; e={ "{0:N0}" -f [int]$_.SubscribedPCT };a="right"} -AutoSize
 
 }
 
 function storageCapacityReport {
     $env:SYMCLI_OUTPUT_MODE='XML'
     
-    "== VMAX Pool Capacity ====================================================="
-    ""
-       
     foreach( $sid in $VMAXINFO.keys ) {
 
         $version=$VMAXINFO.$sid.EnginuityVersion
 
         $sid=$VMAXINFO.$sid.SerialNumber
         
-        "-- VMAX $sid -------------------------------------------------"
-        ""
+        printHeader "POOL CAPACITY" $sid
 
         if( $version -like "59*" ) {
             SRPReport $sid
@@ -369,16 +408,15 @@ function storageCapacityReport {
 
         storagePoolReport $sid
         
-   }
+    }
+
+    
 
 }
 
 function rdfReport {
 
     $env:SYMCLI_OUTPUT_MODE='XML'
-    
-    "== VMAX RDF Group Pair Status ================================================="
-    ""
     
     foreach( $sid in $VMAXINFO.keys ) {
 
@@ -387,8 +425,8 @@ function rdfReport {
         [xml]$symrdf=symrdf -sid $sid -rdfg all list
         [xml]$symcfg=symcfg -sid $sid -rdfg all list
         
-        "-- VMAX $sid -------------------------------------------------"
-        ""
+        printHeader "RDF GROUP STATUS" $sid
+        
         "{0,5} {1,-16} {2,-20}" -f "RDFG#","RDF Group Label", "RDF group pair state:device count"
         "{0,5} {1,-16} {2,-20}" -f ("-"*5), ("-"*16),("-"*20)
 
@@ -452,20 +490,16 @@ function initiatorReport {
     $env:SYMCLI_OUTPUT_MODE='XML'
        
     if( $failonly ) {
-        $reportTitle="== VMAX Initiator Login Failure Report ================================================="
+        $header = "INITIATOR GROUPS WITH LOGIN ISSUES"
     } else {
-        "== VMAX Initiator Login Report ================================================="
+        $header = "INITIATOR GROUP LOGIN STATUS"
     }
     
-    $reportTitle
-    ""
-        
     foreach( $SID in $VMAXINFO.keys ) {
 
         $sid=$VMAXINFO.$sid.SerialNumber
 
-        "-- VMAX $sid -------------------------------------------------"
-        ""
+        printHeader $header $sid
      
         [xml]$symaccessMaskingViewXmlOut=symaccess -sid $SID list view -detail
         [xml]$symaccessLoginsXmlOut=symaccess -sid $SID list logins
@@ -597,31 +631,13 @@ function initiatorReport {
      
 }
 
+if ( $PsCmdlet.ParameterSetName -eq "Help" )
+{
+    get-help $script:MyInvocation.MyCommand.Definition
+    exit 1
+}
+
 $originalSymCliOutputMode=$env:SYMCLI_OUTPUT_MODE
-
-if( $v ) {
-    "vmax_health_check version $VERSION"
-    exit
-}
-
-
-if( $SID -ne "" ) {
-    $VMAXLIST=$SID.split()
-}
-
-if( $sidlist -ne "" ) {
-    if( test-path $sidlist ) {
-        foreach( $SID in ( gc $sidlist | select-string -Pattern "^#|^$" -NotMatch )) {
-            $VMAXLIST+=$SID
-        }
-    }
-}   
-
-if( $VMAXLIST.count -eq 0 ) {
-    "Usage: vmax_health_check.ps1 -SID <symm ID> | -sidlist <symm ID list file> [-all] [-hwfail|-hw] [-capacity] [-rdf] [-loginfail|login] [-v]"
-    exit
-}
-
 
 
 "Computer: " + (hostname)
@@ -634,10 +650,13 @@ if( $VMAXLIST.count -eq 0 ) {
 
 getArrayBaseInfo
 
-"== VMAX Health Check Inventory =============================================================="
-$VMAXINFO.values | ft -AutoSize 	SerialNumber,Model,EnginuityVersion,
-						@{ n="Cache (MB)"; e={ "{0:N0}" -f [int]$_.Cache };a="Right" },
-						PowerOn
+if( $inventory -or $all ) {
+
+    printHeader "VMAX ARRAY INVENTORY"
+    $VMAXINFO.values | ft -AutoSize 	SerialNumber,Model,EnginuityVersion,
+						    @{ n="Cache (MB)"; e={ "{0:N0}" -f [int]$_.Cache };a="Right" },
+						    PowerOn
+}
 
 if( $hwfail -or $all ) {
     hwReport -failonly
@@ -652,7 +671,7 @@ if( $capacity -or $all ) {
     storageCapacityReport
 }
 
-if( $loginfail -or $all ) {
+if( $initloginissues -or $all ) {
     initiatorReport -failonly
 }
 
@@ -660,7 +679,7 @@ if( $rdf -or $all ) {
     rdfReport
 }
 
-if( $login ) {
+if( $initlogin ) {
     initiatorReport
 }
 
